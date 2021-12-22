@@ -1,0 +1,26 @@
+PyPDF(|2|4) throws ValueError reading "Specifying Systems"
+0xabu/pdfannots extracts PDF Expert underlines, it seems, but not "free text annotations" - fixed
+    Dies on "2013 SoCC - Consistency without Borders, Bailis.pdf": "No /Root object! - Is this really a PDF?"
+    Uses pdfminer lib
+pdfrw dies on "Specifying Systems"
+pdfreader dies on both
+xpdf tools' pdftohml
+    On "Specifying Systems" warns that xref table is damaged, my fault? -- YES! Specifying Systems, TLA+ ANNOTATED (2021-07-05 14-36-26).pdf is ok
+    Could use this to generate HTML then try to parse the HTML, but annotations are not distinctly marked in the HTML
+    Underlines rendered as an image, can't use this
+Tika
+    brew install java
+    pip install tika
+    https://svn.apache.org/repos/asf/tika/branches/2.x/tika-example/src/main/java/org/apache/tika/example/
+    just for detecting things about the PDF, not navigating the object tree?
+pdfbox (Java)
+PyMuPDF
+    dies on "Specifying Systems" with "cannot understand xref format", works with older version
+    OK on "2013 SoCC - Consistency without Borders, Bailis.pdf"
+Automator action "Extract PDF Annotations" does FreeText but not underlines, see extract-annotations.workflow
+PDF Expert's "Export Annotations" is thorough but requires janky Applescript
+Zotero plus Zotfiles, "Extract annotations" feature
+    Consistently omits "fi" when extracting underlines from "Specifying Systems", defines -> denes
+    Ignores FreeText
+skimnotes from the Skim app
+    Doesn't find any notes, I guess it only reads notes written with Skim
