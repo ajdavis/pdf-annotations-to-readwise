@@ -1,5 +1,6 @@
 import datetime
 import logging
+import multiprocessing
 import re
 from dataclasses import dataclass, field
 from typing import Optional
@@ -53,7 +54,28 @@ def _parse_date(info: dict) -> Optional[datetime.datetime]:
             minutes=int(match.group("Moffset")))))
 
 
-def annotations(pdf_path: str) -> Annotations:
+def _underlined_text(page: fitz.Page, annot: fitz.Annot) -> str:
+    # Vertices is an array of underlines (long thin rects).
+    rv = ""
+    for i in range(0, len(annot.vertices), 4):
+        vs = annot.vertices[i:i+4]
+        xs = [v[0] for v in vs]
+        ys = [v[1] for v in vs]
+        # Bounds of the rect.
+        x0, x1 = min(xs), max(xs)
+        y0, y1 = min(ys), max(ys)
+        # Raise top of box upward from the underline to capture text.
+        # (Found these offsets by experiment, there must be a better way.)
+        rect = fitz.Rect(x0 - 1, y0 - 7, x1 + 1, y1 + 3)
+        if text := page.get_textbox(rect):
+            rv += " " + text
+        else:
+            logger.warning("No text for underline on page %s", page.number)
+
+    return rv.strip()
+
+
+def _annotations(pdf_path: str, q: multiprocessing.Queue) -> None:
     anns = Annotations()
     for page in fitz.open(pdf_path):
         for a in page.annots(types=[fitz.PDF_ANNOT_FREE_TEXT]):
@@ -62,27 +84,30 @@ def annotations(pdf_path: str) -> Annotations:
                 a.info["content"],
                 page.number,
                 author=a.info["title"],  # Strange but true.
-                dt=_parse_date(a.info)
-            ))
+                dt=_parse_date(a.info)))
 
         for a in page.annots(types=[fitz.PDF_ANNOT_UNDERLINE]):
-            # Experimentally determined offset to get text above underline.
-            # TODO: expand the rect in increments until text is non-empty.
-            rect = fitz.Rect(
-                a.rect.x0 - 1,
-                a.rect.y0 - 7,
-                a.rect.x1 + 1,
-                a.rect.y1 + 3
-            )
             anns.underlines.append(Annotation(
                 "Underline",
-                page.get_textbox(rect),
+                _underlined_text(page, a),
                 page.number,
                 author=a.info["title"],
-                dt=_parse_date(a.info)
-            ))
+                dt=_parse_date(a.info)))
 
-    return anns
+    q.put(anns)
+
+
+def annotations(pdf_path: str) -> Annotations:
+    # mupdf is crashy; avoid terminating the whole script.
+    q = multiprocessing.Queue()
+    p = multiprocessing.Process(target=_annotations, args=(pdf_path, q))
+    p.start()
+    p.join()
+    if 0 != p.exitcode:
+        logger.error("Subprocess failed with exit code: %s", p.exitcode)
+        return Annotations()
+
+    return q.get()
 
 
 def has_annotations(pdf_path: str) -> bool:
