@@ -3,14 +3,14 @@ import datetime
 import fnmatch
 import logging
 import os
+import stat
 import sys
 import time
 from collections import Counter
-from typing import Generator
 
 from pdf_annotations_to_readwise.extract import has_annotations
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("main")
 
 
@@ -39,82 +39,108 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
-def check_command(args: argparse.Namespace) -> None:
+def check_command(args: argparse.Namespace) -> int:
+    logging.info("""Check that PDFs obey rules about naming and annotations.
+
+    1. Only "Foo ANNOTATED.pdf" or "Foo DONE.pdf" files may have annotations.
+    2. Every "Foo ANNOTATED.pdf" must have annotations.
+    2. Every annotated PDF needs a corresponding original in the same directory.
+    
+    PDFs are "done" if the containing directory is named "Bar DONE" and contains
+    a non-empty "Bar.md" file.""")
     exit_code = 0
 
-    def fnmatch_any(full_path: str) -> bool:
-        for ignore in args.ignore:
-            if fnmatch.fnmatch(full_path, ignore):
-                return True
-
-        return False
-
-    def gen_pdfs() -> Generator[str, None, None]:
-        for root in args.directory:
-            for dirpath, dirnames, filenames in os.walk(root):
-                for filename in filenames:
-                    full_path = os.path.join(dirpath, filename)
-                    if fnmatch_any(full_path) or fnmatch_any(filename):
-                        continue
-                    if filename.lower().endswith(".pdf"):
-                        yield full_path
-
-    annotated_suffixes = "ANNOTATED", "DONE"
-
-    def should_be_annotated(filename: str) -> bool:
-        base = os.path.splitext(filename)[0]
-        return base.endswith(annotated_suffixes)
+    annotated_suffixes = " ANNOTATED", " DONE"
 
     def original_name(filename: str) -> str:
-        base = os.path.splitext(filename)[0]
+        base_name = os.path.splitext(filename)[0]
         for s in annotated_suffixes:
-            if base.endswith(s):
-                return f"{base[:len(s)].strip()}.pdf"
+            if base_name.endswith(s):
+                return f"{base_name[:-len(s)].strip()}.pdf"
 
-        assert False, f"Bad unannotated_name() input: {filename}"
+        assert False, f"Bad original_name() input: {filename}"
 
     def error(msg, *args):
         nonlocal exit_code
         logger.error(msg, *args)
         exit_code = 1
 
-    original_pdfs = set(p for p in gen_pdfs() if not should_be_annotated(p))
-    annotated_pdfs = set(p for p in gen_pdfs() if should_be_annotated(p))
-    counter = Counter({"Annotated PDFs": len(annotated_pdfs),
-                       "Original PDFs": len(original_pdfs)})
+    def should_ignore(full_path: str) -> bool:
+        for ignore in args.ignore:
+            if fnmatch.fnmatch(full_path, ignore):
+                return True
 
-    for pdf in original_pdfs:
+        return False
+
+    def has_nonempty_file(full_path: str) -> bool:
+        return (os.path.exists(full_path)
+                and os.stat(full_path)[stat.ST_SIZE] > 0)
+
+    original, annotated, done = set(), set(), set()
+
+    # args.directory is a list of directory names.
+    for root in args.directory:
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirpath_is_done = (
+                os.path.split(dirpath)[-1].endswith(" DONE")
+                and has_nonempty_file(os.path.join(
+                    dirpath,
+                    os.path.basename(dirpath)[:-len(' DONE')]) + ".md"))
+
+            for filename in filenames:
+                full_path = os.path.join(dirpath, filename)
+                if should_ignore(full_path) or should_ignore(filename):
+                    continue
+
+                base, ext = os.path.splitext(filename)
+                if ext.lower() != ".pdf":
+                    continue
+
+                if dirpath_is_done:
+                    done.add(full_path)
+                elif base.endswith(annotated_suffixes):
+                    annotated.add(full_path)
+                else:
+                    original.add(full_path)
+
+    counter = Counter({"Original PDFs": len(original),
+                       "Annotated PDFs": len(annotated),
+                       "Done PDFs": len(done)})
+
+    # TODO: list unfinished PDFs (not named "DONE" or in a dir named "DONE").
+    for pdf in original:
         logger.debug("Checking %s", pdf)
         if has_annotations(pdf):
             error("Annotated PDF not named like 'ANNOTATED' or 'DONE': %s", pdf)
-            counter["Original PDFs with stray annotations"] += 1
+            counter["original PDFs with stray annotations"] += 1
 
-    for pdf in annotated_pdfs:
+    for pdf in annotated:
         logger.debug("Checking %s", pdf)
-        if original_name(pdf) not in original_pdfs:
-            error("Annotated pdf '%s' without unannotated version", pdf)
-            counter["Annotated PDFs without originals"] += 1
+        if original_name(pdf) not in original:
+            error("Annotated pdf '%s' without original version", pdf)
+            counter["annotated PDFs without originals"] += 1
         if not has_annotations(pdf):
             error("No annotations in PDF: %s", pdf)
             counter["PDFs that should have annotations but don't"] += 1
 
     for name, n in counter.items():
-        logging.info("%s: %s", name, n)
+        logging.info("%4d %s", n, name)
 
-    sys.exit(exit_code)
+    return exit_code
 
 
-def sync_command(args: argparse.Namespace) -> None:
-    pass
+def sync_command(args: argparse.Namespace) -> int:
+    return 0
     # TODO: for each ANNOTATED, refresh Readwise annotations
     # books = readwise_list_books(args.token)
 
 
 def main(args: argparse.Namespace) -> None:
     start = time.time()
-    args.func(args)
+    exit_code = args.func(args)
     end = time.time()
     logger.info("Finished in %s", datetime.timedelta(seconds=int(end - start)))
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":

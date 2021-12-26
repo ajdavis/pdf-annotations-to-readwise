@@ -70,7 +70,8 @@ def _underlined_text(page: fitz.Page, annot: fitz.Annot) -> str:
         if text := page.get_textbox(rect):
             rv += " " + text
         else:
-            logger.warning("No text for underline on page %s", page.number)
+            logger.warning("No text for underline on page %s of '%s'",
+                           page.number, page.parent.name)
 
     return rv.strip()
 
