@@ -7,6 +7,8 @@ import stat
 import sys
 import time
 from collections import Counter
+from dataclasses import dataclass
+from typing import Optional
 
 from pdf_annotations_to_readwise.extract import has_annotations
 
@@ -39,26 +41,64 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
+ANNOTATED = " ANNOTATED"
+
+
+def is_annotated(filename: str) -> bool:
+    base_name = os.path.splitext(filename)[0]
+    return base_name.endswith(ANNOTATED)
+
+
+def original_name(filename: str) -> str:
+    base_name = os.path.splitext(filename)[0]
+    if base_name.endswith(ANNOTATED):
+        return f"{base_name[:-len(ANNOTATED)].strip()}.pdf"
+
+    assert False, f"Bad original_name() input: {filename}"
+
+
+def annotated_name(filename: str) -> str:
+    assert not is_annotated(filename)
+    base_name = os.path.splitext(filename)[0]
+    return f"{base_name}{ANNOTATED}.pdf"
+
+
+@dataclass(unsafe_hash=True)
+class PDFPair:
+    """Pair of (original, annotated) PDF files for a paper."""
+    original: Optional[str] = None
+    annotated: Optional[str] = None
+
+    @classmethod
+    def from_filename(cls, filename: str):
+        pair = PDFPair()
+
+        if is_annotated(filename):
+            a = filename
+            o = original_name(filename)
+        else:
+            a = annotated_name(filename)
+            o = filename
+
+        if os.path.exists(o):
+            pair.original = o
+
+        if os.path.exists(a):
+            pair.annotated = a
+
+        return pair
+
+
 def check_command(args: argparse.Namespace) -> int:
     logging.info("""Check that PDFs obey rules about naming and annotations.
 
-    1. Only "Foo ANNOTATED.pdf" or "Foo DONE.pdf" files may have annotations.
+    1. Only "Foo ANNOTATED.pdf" files may have annotations.
     2. Every "Foo ANNOTATED.pdf" must have annotations.
     2. Every annotated PDF needs a corresponding original in the same directory.
     
     PDFs are "done" if the containing directory is named "Bar DONE" and contains
     a non-empty "Bar.md" file.""")
     exit_code = 0
-
-    annotated_suffixes = " ANNOTATED", " DONE"
-
-    def original_name(filename: str) -> str:
-        base_name = os.path.splitext(filename)[0]
-        for s in annotated_suffixes:
-            if base_name.endswith(s):
-                return f"{base_name[:-len(s)].strip()}.pdf"
-
-        assert False, f"Bad original_name() input: {filename}"
 
     def error(msg, *args):
         nonlocal exit_code
@@ -76,7 +116,8 @@ def check_command(args: argparse.Namespace) -> int:
         return (os.path.exists(full_path)
                 and os.stat(full_path)[stat.ST_SIZE] > 0)
 
-    original, annotated, done = set(), set(), set()
+    todo: set[PDFPair] = set()
+    done: set[PDFPair] = set()
 
     # args.directory is a list of directory names.
     for root in args.directory:
@@ -84,8 +125,8 @@ def check_command(args: argparse.Namespace) -> int:
             dirpath_is_done = (
                 os.path.split(dirpath)[-1].endswith(" DONE")
                 and has_nonempty_file(os.path.join(
-                    dirpath,
-                    os.path.basename(dirpath)[:-len(' DONE')]) + ".md"))
+                dirpath,
+                os.path.basename(dirpath)[:-len(' DONE')]) + ".md"))
 
             for filename in filenames:
                 full_path = os.path.join(dirpath, filename)
@@ -96,35 +137,46 @@ def check_command(args: argparse.Namespace) -> int:
                 if ext.lower() != ".pdf":
                     continue
 
+                # If there's an original and annotated we'll generate this pair
+                # twice, but the set will contain only one copy.
+                pair = PDFPair.from_filename(full_path)
                 if dirpath_is_done:
-                    done.add(full_path)
-                elif base.endswith(annotated_suffixes):
-                    annotated.add(full_path)
+                    done.add(pair)
                 else:
-                    original.add(full_path)
+                    todo.add(pair)
 
-    counter = Counter({"Original PDFs": len(original),
-                       "Annotated PDFs": len(annotated),
-                       "Done PDFs": len(done)})
+    all_pairs = todo | done
 
-    # TODO: list unfinished PDFs (not named "DONE" or in a dir named "DONE").
-    for pdf in original:
-        logger.debug("Checking %s", pdf)
-        if has_annotations(pdf):
-            error("Annotated PDF not named like 'ANNOTATED' or 'DONE': %s", pdf)
-            counter["original PDFs with stray annotations"] += 1
+    counter = Counter({
+        "Original PDFs": len([p for p in all_pairs if p.original]),
+        "Annotated PDFs": len([p for p in all_pairs if p.annotated]),
+        "Done": len(done),
+        "TODO": len(todo)})
 
-    for pdf in annotated:
-        logger.debug("Checking %s", pdf)
-        if original_name(pdf) not in original:
-            error("Annotated pdf '%s' without original version", pdf)
-            counter["annotated PDFs without originals"] += 1
-        if not has_annotations(pdf):
-            error("No annotations in PDF: %s", pdf)
-            counter["PDFs that should have annotations but don't"] += 1
+    for pair in all_pairs:
+        if pair.original:
+            logger.debug("Checking %s", pair.original)
+            if has_annotations(pair.original):
+                error("Annotated PDF not named like 'ANNOTATED' or 'DONE': %s",
+                      pair.original)
+                counter["original PDFs with stray annotations"] += 1
+
+        if pair.annotated:
+            logger.debug("Checking %s", pair.annotated)
+            if not pair.original:
+                error("Annotated pdf '%s' without original version",
+                      pair.annotated)
+                counter["annotated PDFs without originals"] += 1
+            if not has_annotations(pair.annotated):
+                error("No annotations in PDF: %s", pair.annotated)
+                counter["PDFs that should have annotations but don't"] += 1
 
     for name, n in counter.items():
         logging.info("%4d %s", n, name)
+
+    logging.info("TODO:")
+    for pdf in sorted([pair.original for pair in all_pairs]):
+        logging.info(pdf)
 
     return exit_code
 
