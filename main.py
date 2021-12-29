@@ -112,9 +112,16 @@ def check_command(args: argparse.Namespace) -> int:
 
         return False
 
-    def has_nonempty_file(full_path: str) -> bool:
-        return (os.path.exists(full_path)
-                and os.stat(full_path)[stat.ST_SIZE] > 0)
+    def directory_is_done(dir_path: str) -> bool:
+        if not os.path.split(dir_path)[-1].endswith(" DONE"):
+            return False
+
+        md_path = os.path.join(
+            dir_path, os.path.basename(dir_path)[:-len(" DONE")]
+        ) + ".md"
+
+        return (os.path.exists(md_path)
+                and os.stat(md_path)[stat.ST_SIZE] > 0)
 
     todo: set[PDFPair] = set()
     done: set[PDFPair] = set()
@@ -122,11 +129,7 @@ def check_command(args: argparse.Namespace) -> int:
     # args.directory is a list of directory names.
     for root in args.directory:
         for dirpath, dirnames, filenames in os.walk(root):
-            dirpath_is_done = (
-                os.path.split(dirpath)[-1].endswith(" DONE")
-                and has_nonempty_file(os.path.join(
-                dirpath,
-                os.path.basename(dirpath)[:-len(' DONE')]) + ".md"))
+            is_done = directory_is_done(dirpath)
 
             for filename in filenames:
                 full_path = os.path.join(dirpath, filename)
@@ -140,7 +143,7 @@ def check_command(args: argparse.Namespace) -> int:
                 # If there's an original and annotated we'll generate this pair
                 # twice, but the set will contain only one copy.
                 pair = PDFPair.from_filename(full_path)
-                if dirpath_is_done:
+                if is_done:
                     done.add(pair)
                 else:
                     todo.add(pair)
