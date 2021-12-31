@@ -1,6 +1,7 @@
 import datetime
 import logging
 import multiprocessing
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Optional
@@ -8,11 +9,13 @@ from typing import Optional
 import fitz  # aka PyMuPDF
 
 
-logger = logging.getLogger("extract")
+_logger = logging.getLogger("extract")
+
 
 @dataclass
 class Annotation:
     type: str
+    id: str
     text: str
     page_number: int
     author: Optional[str] = None
@@ -21,8 +24,21 @@ class Annotation:
 
 @dataclass
 class Annotations:
+    source_title: str
     free_texts: list[Annotation] = field(default_factory=list)
     underlines: list[Annotation] = field(default_factory=list)
+    annotation_ids: set[str] = field(
+        init=False, default_factory=set)
+
+    def add_annotation(self, ann: Annotation):
+        if ann.type == "FreeText":
+            self.free_texts.append(ann)
+        elif ann.type == "Underline":
+            self.underlines.append(ann)
+        else:
+            raise ValueError(f"Bad annotation type: {ann.type}")
+
+        self.annotation_ids.add(ann.id)
 
 
 def _parse_date(info: dict) -> Optional[datetime.datetime]:
@@ -38,7 +54,7 @@ def _parse_date(info: dict) -> Optional[datetime.datetime]:
         date_str)
 
     if not match:
-        logger.warning("Bad date string: '%s'", date_str)
+        _logger.warning("Bad date string: '%s'", date_str)
         return None
 
     sign = -1 if match.group("sign") == "-" else 1
@@ -70,26 +86,29 @@ def _underlined_text(page: fitz.Page, annot: fitz.Annot) -> str:
         if text := page.get_textbox(rect):
             rv += " " + text
         else:
-            logger.warning("No text for underline on page %s of '%s'",
-                           page.number, page.parent.name)
+            _logger.warning("No text for underline on page %s of '%s'",
+                            page.number, page.parent.name)
 
-    return rv.strip()
+    # Line-broken text appears with "dash- es": hyphen followed by space.
+    return rv.strip().replace("- ", "")
 
 
 def _annotations(pdf_path: str, q: multiprocessing.Queue) -> None:
-    anns = Annotations()
+    anns = Annotations(source_title=os.path.split(pdf_path)[-1])
     for page in fitz.open(pdf_path):
         for a in page.annots(types=[fitz.PDF_ANNOT_FREE_TEXT]):
-            anns.free_texts.append(Annotation(
+            anns.add_annotation(Annotation(
                 "FreeText",
+                a.info["id"],
                 a.info["content"],
                 page.number,
                 author=a.info["title"],  # Strange but true.
                 dt=_parse_date(a.info)))
 
         for a in page.annots(types=[fitz.PDF_ANNOT_UNDERLINE]):
-            anns.underlines.append(Annotation(
+            anns.add_annotation(Annotation(
                 "Underline",
+                a.info["id"],
                 _underlined_text(page, a),
                 page.number,
                 author=a.info["title"],
@@ -105,8 +124,8 @@ def annotations(pdf_path: str) -> Annotations:
     p.start()
     p.join()
     if 0 != p.exitcode:
-        logger.error("Subprocess failed with exit code: %s", p.exitcode)
-        return Annotations()
+        _logger.error("Subprocess failed with exit code: %s", p.exitcode)
+        return Annotations(source_title=os.path.split(pdf_path)[-1])
 
     return q.get()
 
