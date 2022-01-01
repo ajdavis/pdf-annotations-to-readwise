@@ -40,6 +40,10 @@ class Annotations:
 
         self.annotation_ids.add(ann.id)
 
+    @property
+    def count(self):
+        return len(self.annotation_ids)
+
 
 def _parse_date(info: dict) -> Optional[datetime.datetime]:
     if not (date_str := info.get("modDate", info.get("creationDate"))):

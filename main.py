@@ -146,7 +146,7 @@ def find_pdfs(args: argparse.Namespace) -> (set[PDFPair], set[PDFPair]):
 
 
 def check_command(args: argparse.Namespace) -> int:
-    logging.info("""Check that PDFs obey rules about naming and annotations.
+    logger.info("""Check that PDFs obey rules about naming and annotations.
 
     1. Only "Foo ANNOTATED.pdf" files may have annotations.
     2. Every "Foo ANNOTATED.pdf" must have annotations.
@@ -221,6 +221,10 @@ def sync_command(args: argparse.Namespace) -> int:
                 for annotation_id in old_annotation_ids:
                     readwise.delete_highlight(
                         args.token, highlights[annotation_id]["id"])
+
+        logging.info("%d annotations for '%s'", anns.count, title)
+        if not anns.count:
+            continue
 
         readwise.post_highlights(token=args.token, anns=anns)
 

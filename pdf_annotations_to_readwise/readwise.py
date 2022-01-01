@@ -8,24 +8,24 @@ _APP_NAME = "pdf-annotations-to-readwise"
 _logger = logging.getLogger("readwise")
 
 
-def _readwise_get(token: str, endpoint: str, query: dict) -> dict:
-    response = requests.get(
+def _readwise_api(token: str, method: str, endpoint: str, **kwargs) -> dict:
+    response = requests.request(
+        method=method,
         url=f"https://readwise.io/api/v2/{endpoint}/",
         headers={"Authorization": f"Token {token}"},
-        params=query)
+        **kwargs)
     response.raise_for_status()
-    rv = response.json()
+    return response.json()
+
+
+def _readwise_get(token: str, endpoint: str, query: dict) -> dict:
+    rv = _readwise_api(token, "get", endpoint, params=query)
     assert rv["next"] is None, "TODO: pagination"
     return rv["results"]
 
 
 def _readwise_post(token: str, endpoint: str, data: dict) -> dict:
-    response = requests.post(
-        url=f"https://readwise.io/api/v2/{endpoint}/",
-        headers={"Authorization": f"Token {token}"},
-        json=data)
-    response.raise_for_status()
-    return response.json()
+    return _readwise_api(token, "post", endpoint, json=data)
 
 
 def _readwise_delete(token: str, endpoint: str) -> None:
