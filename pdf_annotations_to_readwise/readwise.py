@@ -53,15 +53,30 @@ def delete_highlight(token: str, highlight_url: str) -> None:
     _readwise_delete(token, f"highlights/{highlight_url}")
 
 
-def post_highlights(token: str, anns: extract.Annotations) -> dict:
-    return _readwise_post(token, "highlights", {"highlights": [{
-        "text": a.text,
-        "title": anns.source_title,
-        "location": a.page_number + 1,
-        "highlighted_at": a.dt.isoformat(),
-        # id isn't a URL, but it's unique!
-        "highlight_url": a.id,
-        "category": "books",
-        "location_type": "page",
-        "source_type": _APP_NAME
-    } for a in anns.underlines + anns.free_texts]})
+def add_highlight_tag(token: str, highlight_url: str, tag: str) -> None:
+    _readwise_post(token, f"highlights/{highlight_url}/tags", {"name": tag})
+
+
+def post_highlights(token: str, anns: extract.Annotations) -> None:
+    def highlights_json(annotations: list[extract.Annotation]) -> list[dict]:
+        return [{
+            "text": a.text,
+            "title": anns.source_title,
+            "location": a.page_number + 1,
+            "highlighted_at": a.dt.isoformat(),
+            # id isn't a URL, but it's unique!
+            "highlight_url": a.id,
+            "category": "books",
+            "location_type": "page",
+            "source_type": _APP_NAME
+        } for a in annotations]
+
+    _readwise_post(
+        token, "highlights", {"highlights": highlights_json(anns.underlines)})
+
+    free_texts_reply = _readwise_post(
+        token, "highlights", {"highlights": highlights_json(anns.free_texts)})
+
+    for book_info in free_texts_reply:
+        for highlight_id in book_info.get("modified_highlights", []):
+            add_highlight_tag(token, highlight_id, "freetext")
