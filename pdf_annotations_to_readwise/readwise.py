@@ -54,7 +54,15 @@ def delete_highlight(token: str, highlight_url: str) -> None:
 
 
 def add_highlight_tag(token: str, highlight_url: str, tag: str) -> None:
-    _readwise_post(token, f"highlights/{highlight_url}/tags", {"name": tag})
+    try:
+        _readwise_post(token, f"highlights/{highlight_url}/tags", {"name": tag})
+    except requests.HTTPError as exc:
+        if exc.response.status_code == 400:
+            error_message = exc.response.json().get("name")
+            if error_message == "Tag with this name already exists":
+                return
+
+        raise
 
 
 def post_highlights(token: str, anns: extract.Annotations) -> None:
@@ -71,12 +79,19 @@ def post_highlights(token: str, anns: extract.Annotations) -> None:
             "source_type": _APP_NAME
         } for a in annotations]
 
-    _readwise_post(
-        token, "highlights", {"highlights": highlights_json(anns.underlines)})
+    # Readwise returns HTTP 400 if highlights is an empty list.
+    if anns.underlines:
+        _readwise_post(
+            token,
+            "highlights",
+            {"highlights": highlights_json(anns.underlines)})
 
-    free_texts_reply = _readwise_post(
-        token, "highlights", {"highlights": highlights_json(anns.free_texts)})
+    if anns.free_texts:
+        free_texts_reply = _readwise_post(
+            token,
+            "highlights",
+            {"highlights": highlights_json(anns.free_texts)})
 
-    for book_info in free_texts_reply:
-        for highlight_id in book_info.get("modified_highlights", []):
-            add_highlight_tag(token, highlight_id, "freetext")
+        for book_info in free_texts_reply:
+            for highlight_id in book_info.get("modified_highlights", []):
+                add_highlight_tag(token, highlight_id, "freetext")
