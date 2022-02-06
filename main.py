@@ -16,6 +16,13 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("main")
 
 
+def directory_type(path: str) -> str:
+    if not os.path.isdir(path):
+        raise ValueError(f'{path} is not a directory')
+
+    return path
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.set_defaults(func=None)
@@ -34,7 +41,7 @@ def parse_args() -> argparse.Namespace:
     for command in check, sync:
         command.add_argument("-i", "--ignore", action="append",
                              help="File(s) to ignore, glob patterns allowed")
-        command.add_argument("directory", nargs="+")
+        command.add_argument("directory", nargs="+", type=directory_type)
 
     args = parser.parse_args()
     if not args.func:
