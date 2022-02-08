@@ -44,6 +44,15 @@ class Annotations:
     def count(self):
         return len(self.annotation_ids)
 
+    def check_ids(self) -> bool:
+        failed = False
+        for a in self.free_texts + self.underlines:
+            if not a.id:
+                _logger.error("No id for %s: '%s'", a.type, a.text)
+                failed = True
+
+        return failed
+
 
 def _parse_date(info: dict) -> Optional[datetime.datetime]:
     if not (date_str := info.get("modDate", info.get("creationDate"))):
@@ -128,7 +137,8 @@ def annotations(pdf_path: str) -> Annotations:
     p.start()
     p.join()
     if 0 != p.exitcode:
-        _logger.error("Subprocess failed with exit code: %s", p.exitcode)
+        _logger.error("Subprocess failed with exit code: %s, file: %s",
+                      p.exitcode, pdf_path)
         return Annotations(source_title=os.path.split(pdf_path)[-1])
 
     return q.get()

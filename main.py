@@ -217,6 +217,9 @@ def sync_command(args: argparse.Namespace) -> int:
 
         title = os.path.basename(pair.annotated)
         anns = extract.annotations(pair.annotated)
+        if anns.check_ids():
+            logging.error("Skipping %s", pair.annotated)
+            continue
 
         if title in books:
             book_id = books[title]["id"]
