@@ -10,7 +10,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Optional
 
-from pdf_annotations_to_readwise import extract, readwise
+from pdf_annotations_to_readwise import extract, readwise, report
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("main")
@@ -30,6 +30,7 @@ def parse_args() -> argparse.Namespace:
 
     check = subparsers.add_parser(
         "check", help="Find stray annotations and unsummarized articles")
+    check.add_argument("-o", "--output", help="HTML report path")
     check.set_defaults(func=check_command)
 
     sync = subparsers.add_parser(
@@ -199,8 +200,13 @@ def check_command(args: argparse.Namespace) -> int:
         logging.info("%4d %s", n, name)
 
     logging.info("TODO:")
-    for pdf in sorted([pair.original for pair in todo]):
+    todos = sorted([pair.original for pair in todo])
+    for pdf in todos:
         logging.info(pdf)
+
+    if args.output:
+        with open(args.output, 'w+') as f:
+            report.report(out=f, counter=counter, sorted_todos=todos)
 
     return exit_code
 

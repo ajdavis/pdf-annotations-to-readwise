@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>PDFs Report</title>
+</head>
+<body>
+<table>
+  {% for name, n in counter.items() %}
+  <tr><td>{{ name }}:</td><td>{{ n }}</td></tr>
+  {% endfor %}
+</table>
+
+<h1>TODO:</h1>
+{% for depth, path in gen_todos() %}
+<p>{{ ("&nbsp;" * (depth * 4)) | safe }}<a href="file://{{ path }}">{{ path | basename }}</a></p>
+{% endfor %}
+</body>
+</html>
