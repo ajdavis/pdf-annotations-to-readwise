@@ -10,9 +10,19 @@
   {% endfor %}
 </table>
 
-<h1>TODO:</h1>
-{% for depth, path in gen_todos() %}
-<p>{{ ("&nbsp;" * (depth * 4)) | safe }}<a href="file://{{ path }}">{{ path | basename }}</a></p>
+<h1>ERRORS</h1>
+{% for error in errors %}
+<p>{{ error }}</p>
+{% endfor %}
+
+<h1>TODO</h1>
+{% for depth, path, reason_not_done in gen_todos() %}
+{% set spacer = ("&nbsp;" * (depth * 4)) %}
+<p>{{ spacer | safe }}<a href="file://{{ path }}">{{ path | basename }}</a>
+{% if reason_not_done %}
+<br>{{ spacer | safe }}{{ reason_not_done }}
+{% endif %}
+</p>
 {% endfor %}
 </body>
 </html>

@@ -7,10 +7,8 @@ import stat
 import sys
 import time
 from collections import Counter
-from dataclasses import dataclass
-from typing import Optional
 
-from pdf_annotations_to_readwise import extract, readwise, report
+from pdf_annotations_to_readwise import PDFPair, extract, readwise, report
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("main")
@@ -52,54 +50,6 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
-ANNOTATED = " ANNOTATED"
-
-
-def is_annotated(filename: str) -> bool:
-    base_name = os.path.splitext(filename)[0]
-    return base_name.endswith(ANNOTATED)
-
-
-def original_name(filename: str) -> str:
-    base_name = os.path.splitext(filename)[0]
-    if base_name.endswith(ANNOTATED):
-        return f"{base_name[:-len(ANNOTATED)].strip()}.pdf"
-
-    assert False, f"Bad original_name() input: {filename}"
-
-
-def annotated_name(filename: str) -> str:
-    assert not is_annotated(filename)
-    base_name = os.path.splitext(filename)[0]
-    return f"{base_name}{ANNOTATED}.pdf"
-
-
-@dataclass(unsafe_hash=True)
-class PDFPair:
-    """Pair of (original, annotated) PDF files for a paper."""
-    original: Optional[str] = None
-    annotated: Optional[str] = None
-
-    @classmethod
-    def from_filename(cls, filename: str):
-        pair = PDFPair()
-
-        if is_annotated(filename):
-            a = filename
-            o = original_name(filename)
-        else:
-            a = annotated_name(filename)
-            o = filename
-
-        if os.path.exists(o):
-            pair.original = o
-
-        if os.path.exists(a):
-            pair.annotated = a
-
-        return pair
-
-
 def find_pdfs(args: argparse.Namespace) -> (set[PDFPair], set[PDFPair]):
     """Return to-read and done PDFs."""
     all_filenames = set()
@@ -111,16 +61,18 @@ def find_pdfs(args: argparse.Namespace) -> (set[PDFPair], set[PDFPair]):
 
         return False
 
-    def directory_is_done(dir_path: str) -> bool:
+    def reason_directory_not_done(dir_path: str) -> str:
         if not os.path.split(dir_path)[-1].endswith(" DONE"):
-            return False
+            return '''Directory name doesn't end with "DONE"'''
 
-        md_path = os.path.join(
-            dir_path, os.path.basename(dir_path)[:-len(" DONE")]
-        ) + ".md"
+        md_filename = os.path.basename(dir_path)[:-len(" DONE")] + ".md"
+        md_path = os.path.join(dir_path, md_filename)
 
-        return (os.path.exists(md_path)
-                and os.stat(md_path)[stat.ST_SIZE] > 0)
+        if not os.path.exists(md_path):
+            return f'''No "{md_filename}"'''
+
+        if os.stat(md_path)[stat.ST_SIZE] == 0:
+            return f'''"{md_filename}" is empty'''
 
     todo: set[PDFPair] = set()
     done: set[PDFPair] = set()
@@ -128,7 +80,7 @@ def find_pdfs(args: argparse.Namespace) -> (set[PDFPair], set[PDFPair]):
     # args.directory is a list of directory names.
     for root in args.directory:
         for dirpath, dirnames, filenames in os.walk(root):
-            is_done = directory_is_done(dirpath)
+            reason_not_done = reason_directory_not_done(dirpath)
 
             for filename in filenames:
                 full_path = os.path.join(dirpath, filename)
@@ -145,10 +97,11 @@ def find_pdfs(args: argparse.Namespace) -> (set[PDFPair], set[PDFPair]):
                 # If there's an original and annotated we'll generate this pair
                 # twice, but the set will contain only one copy.
                 pair = PDFPair.from_filename(full_path)
-                if is_done:
-                    done.add(pair)
-                else:
+                if reason_not_done:
+                    pair.reason_not_done = reason_not_done
                     todo.add(pair)
+                else:
+                    done.add(pair)
 
     return todo, done
 
@@ -163,10 +116,12 @@ def check_command(args: argparse.Namespace) -> int:
     PDFs are "done" if the containing directory is named "Bar DONE" and contains
     a non-empty "Bar.md" file.""")
     exit_code = 0
+    errors = []
 
     def error(msg, *args):
         nonlocal exit_code
         logger.error(msg, *args)
+        errors.append(msg % args)
         exit_code = 1
 
     todo, done = find_pdfs(args)
@@ -200,13 +155,15 @@ def check_command(args: argparse.Namespace) -> int:
         logging.info("%4d %s", n, name)
 
     logging.info("TODO:")
-    todos = sorted([pair.original for pair in todo])
-    for pdf in todos:
-        logging.info(pdf)
+    todos = sorted(todo, key=lambda pair: pair.original)
+    for pair in todos:
+        logging.info(pair.original)
+        logging.info(pair.reason_not_done)
 
     if args.output:
         with open(args.output, 'w+') as f:
-            report.report(out=f, counter=counter, sorted_todos=todos)
+            report.report(
+                out=f, counter=counter, sorted_todos=todos, errors=errors)
 
     return exit_code
 
