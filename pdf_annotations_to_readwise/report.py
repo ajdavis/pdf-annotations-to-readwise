@@ -1,4 +1,5 @@
 import collections
+import datetime
 import os.path
 import typing
 from typing import Optional
@@ -67,4 +68,5 @@ def report(out: typing.TextIO,
                         stack.append(part)
                         yield yield_value(t, is_penultimate)
 
+    now = str(datetime.datetime.now())
     env.get_template("report.html").stream(**locals()).dump(out)

@@ -4,6 +4,10 @@
   <title>PDFs Report</title>
 </head>
 <body>
+
+Generated {{ now }}
+
+<h1>STATS</h1>
 <table>
   {% for name, n in counter.items() %}
   <tr><td>{{ name }}:</td><td>{{ n }}</td></tr>
